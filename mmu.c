@@ -1,8 +1,9 @@
 #include "mmu.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
-
+#define FREE_LIST_SIZE = 32*1024
 // byte addressable memory
 unsigned char RAM[RAM_SIZE];  
 
@@ -31,11 +32,72 @@ int NUM_USABLE_FRAMES = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE);
 int error_no; 
 
 
+unsigned int page_number_extractor = 1023<<22;
+unsigned int page_frame_extractor = 65535<<6;
+unsigned int readable_extractor = O_READ;
+unsigned int writable_extractor = O_WRITE;
+unsigned int executable_extractor = O_EX;
+unsigned int present_extractor = 1<<3;
+
+// storing the free list as a boolean array the size of total page_frames possible i.e.
+// 128*1024*1024/4*1024 = 32*1024 Bytes Needed = 32KB
+// 0 means that the frame has not been allocated yet, 1 means frame allocated 
+// to read from unsigned char array, read as (int)RAM[i]
+int start_index_free_list = 0;
+int end_index_free_list = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) - 1; //end_index has been filled,loop till <= end_index
+// 4100 bytes per PCB struct, 100 processes can exist simultaneously
+// 4100 * 100 bytes < 1024 * 500 bytes < 500KB total used up
+int start_index_page_tables = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE);
+int end_index_page_tables = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) + 4108*100 - 1;
+
+// storing all the page tables as an array of PCB structs
+// each PCB struct has size
 
 void os_init() {
     // TODO student 
     // initialize your data structures.
+
+    // first 32*1024 bytes are for the binary free list we created i.e. 32KB is  for the binary free list
+    // intitalise them all to 0 since nothing has been allocated yet
+    for(int i=start_index_free_list; i<=end_index_free_list; i++){
+        RAM[i]  =  (unsigned char)0;
+    }
+    for(int i=0; i<100; i++){
+        struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*i]);
+        temp->is_free = 1;
+        temp->pid = i+1; 
+        temp->page_table_count = 0;
+        // if(i==32){
+        //     temp->is_free = 1;
+        // }
+    }
 }
+
+int get_free_page_frame_index(){
+    for(int i=start_index_free_list; i<=end_index_free_list; i++){
+        if((int)RAM[i]==0){
+            return i;
+        }
+    }
+    return -1;
+} 
+
+int get_free_pcb_index(){
+    struct PCB* iter = (struct PCB*) ( &OS_MEM[start_index_page_tables]);
+    for(int i=0; i<99; i++){
+        int pid = iter->pid;
+        int ptc = iter->page_table_count;
+        int is_free = iter->is_free;
+        // printf("%d, %d, %d, %d \n", i, is_free , pid, ptc);
+        if(is_free){
+            return i;
+        }
+        iter++;
+    }
+    return -1;
+} 
+
+
 
 
 // ----------------------------------- Functions for managing memory --------------------------------- //
@@ -81,6 +143,18 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
                  int max_stack_size, unsigned char* code_and_ro_data) 
 {   
     // TODO student
+    int no_pages_code = code_size/PAGE_SIZE;
+    int no_pages_ro_data = ro_data_size/PAGE_SIZE;
+    int no_pages_rw_data = rw_data_size/PAGE_SIZE;
+    int no_pages_stack = max_stack_size/PAGE_SIZE;
+    int pcb_index_to_allocate = get_free_pcb_index();
+    if(pcb_index_to_allocate==-1){
+        printf("Error : no free space \n");
+    }
+    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables+ 4108*pcb_index_to_allocate]);
+    curr->is_free = 0;
+    int process_id_allocated = curr->pid;
+    
     return 0;
 }
 
@@ -166,41 +240,81 @@ void write_mem(int pid, int vmem_addr, unsigned char byte)
 
 // ---------------------- Helper functions for Page table entries ------------------ // 
 
+// return the page number from the pte
+int pte_to_page_num(page_table_entry pte) 
+{
+    // DONE: student
+    // printf("Getting page from page table entry %u \n", pte);
+    unsigned int res = (pte & page_number_extractor)>>22;
+    // printf("Res is %u\n",res);
+    return res;
+}
+
 // return the frame number from the pte
 int pte_to_frame_num(page_table_entry pte) 
 {
-    // TODO: student
-    return 0;
+    // DONE: student
+    // printf("Getting frame_num from page table entry %u \n", pte);
+    unsigned int res = (pte & page_frame_extractor)>>6;
+    return res;
 }
 
 
 // return 1 if read bit is set in the pte
 // 0 otherwise
 int is_readable(page_table_entry pte) {
-    // TODO: student
-    return 0;
+    // DONE: student
+    // printf("Getting is_readable bit from page table entry %u \n", pte);
+    unsigned int res = pte & readable_extractor;
+    // printf("Res is %u\n",res);
+    return res==1;
 }
 
 // return 1 if write bit is set in the pte
 // 0 otherwise
 int is_writeable(page_table_entry pte) {
-    // TODO: student
-    return 0;
+    // DONE: student
+    // printf("Getting is_writable bit from page table entry %u \n", pte);
+    unsigned int res = (pte & writable_extractor)>>1;
+    // printf("Res is %u\n",res);
+    return res==1;
 }
 
 // return 1 if executable bit is set in the pte
 // 0 otherwise
 int is_executable(page_table_entry pte) {
-    // TODO: student
-    return 0;
+    // DONE: student
+    // printf("Getting is_executable bit from page table entry %u \n", pte);
+    unsigned int res = (pte & executable_extractor)>>2;
+    // printf("Res is %u\n",res);
+    return res==1;
 }
-
 
 // return 1 if present bit is set in the pte
 // 0 otherwise
 int is_present(page_table_entry pte) {
-    // TODO: student
-    return 0;
+    // DONE: student
+    // printf("Getting present bit from page table entry %u \n", pte);
+    unsigned int res = (pte & present_extractor)>>3;
+    // printf("Res is %u\n",res);
+    return res==1;
+}
+
+page_table_entry build_pte(int page_num, int frame_num, int present, int flags){
+    if(page_num>1023 || page_num<0){
+        printf("Error : page number out of range \n");
+    }
+    if(frame_num>65535 || frame_num<0){
+        printf("Error : page frame number out of range \n");
+    }
+    if(present!=0 && present!=1){
+        printf("Error : present bit can only be 0 or 1 \n");
+    }
+    if(flags>7 || flags<0){
+        printf("Error : flags can range from 0 to 7 \n");
+    }
+    page_table_entry res = (page_num<<22) + (frame_num<<6) + (present<<3) + flags;
+    return res;
 }
 
 // -------------------  functions to print the state  --------------------------------------------- //
@@ -228,7 +342,42 @@ void print_page_table(int pid)
 
 }
 
-
+int main(){
+    int page_num = 234;
+    int frame_num = 11223;
+    int flags = 6;
+    int read = 0;
+    int write = 1;
+    int exec = 1;
+    int present = 0;
+    page_table_entry pte = build_pte(page_num, frame_num, present, 6);
+    printf("%u should be %d\n",is_readable(pte), read);
+    printf("%u should be %d\n",is_executable(pte), exec);
+    printf("%u should be %d\n",is_writeable(pte), write);
+    printf("%u should be %d\n",is_present(pte), present);
+    printf("%u should be %d\n",pte_to_page_num(pte), page_num);
+    printf("%u should be %d\n",pte_to_frame_num(pte), frame_num);
+    printf("%d",NUM_USABLE_FRAMES);
+    os_init();
+    // for(int i=start_index_free_list; i<=end_index_free_list; i++){
+    //     printf("%d\n",(int)RAM[i]);
+    // }
+    struct PCB x;
+    // printf("%lu",sizeof(char));
+    printf("%lu\n",sizeof(x));
+    printf("%d, %d\n",start_index_page_tables,end_index_page_tables);
+    // struct PCB* sap = (struct PCB*) ( &OS_MEM[start_index_page_tables]);
+    // int pid = sap->pid;
+    // int ptc = sap->page_table_count;
+    // printf("%d, %d \n", pid, ptc);
+    // for(int i=0; i<99; i++){
+    //     sap++;
+    //     pid = sap->pid;
+    //     ptc = sap->page_table_count;
+    //     printf("%d, %d, %d \n", i+2, pid, ptc);
+    // }
+    printf("%d\n", get_free_pcb_index());
+}
 
 
 
