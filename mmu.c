@@ -310,7 +310,7 @@ int fork_ps(int pid) {
             curr->page_table_count++;
         }
     }
-    // TODO student:
+    // DONE student:
     return process_id_allocated;
 }
 
@@ -326,11 +326,21 @@ int fork_ps(int pid) {
 // Use flags to set the protection bits of the pages.
 // Ex: flags = O_READ | O_WRITE => page should be read & writeable.
 //
-// If any of the pages was already allocated then kill the process, deallocate all its resources(ps_exit) 
+// If any of the pages was already allocated then kill the process, deallocate all its resources(exit_ps) 
 // and set error_no to ERR_SEG_FAULT.
 void allocate_pages(int pid, int vmem_addr, int num_pages, int flags) 
 {
    // TODO student
+    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    for(int i = (vmem_addr)/(PAGE_SIZE); i < num_pages; i++){
+        if(is_present(curr->page_table[i])==1){
+            error_no = ERR_SEG_FAULT;
+            exit_ps(pid);
+            return;
+        }else{
+            curr->page_table[i] = build_pte(0, 0, 1, flags);
+        }
+    }
 }
 
 
@@ -341,32 +351,65 @@ void allocate_pages(int pid, int vmem_addr, int num_pages, int flags)
 // Assume vmem_addr points to a page boundary
 // Assume 0 <= vmem_addr < PS_VIRTUAL_MEM_SIZE
 
-// If any of the pages was not already allocated then kill the process, deallocate all its resources(ps_exit) 
+// If any of the pages was not already allocated then kill the process, deallocate all its resources(exit_ps) 
 // and set error_no to ERR_SEG_FAULT.
 void deallocate_pages(int pid, int vmem_addr, int num_pages) 
 {
    // TODO student
+    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    for(int i = (vmem_addr)/(PAGE_SIZE); i < num_pages; i++){
+        if(is_present(curr->page_table[i])==0){
+            error_no = ERR_SEG_FAULT;
+            exit_ps(pid);
+            return;
+        }else{
+            int frame_number_to_drop = pte_to_frame_num(curr->page_table[i]);
+            RAM[frame_number_to_drop - 18432] = (unsigned char)0;
+            curr->page_table[i] = build_pte(0, 0, 0, 0);
+        }
+    }
 }
 
 // Read the byte at `vmem_addr` virtual address of the process
-// In case of illegal memory access kill the process, deallocate all its resources(ps_exit) 
+// In case of illegal memory access kill the process, deallocate all its resources(exit_ps) 
 // and set error_no to ERR_SEG_FAULT.
 // 
 // assume 0 <= vmem_addr < PS_VIRTUAL_MEM_SIZE
 unsigned char read_mem(int pid, int vmem_addr) 
 {
     // TODO: student
-    return 0;
+    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    int page_number = (int)(vmem_addr/PAGE_SIZE);
+    int byte_offset = (vmem_addr % PAGE_SIZE);
+    if(is_present(curr->page_table[page_number])==0 || is_readable(curr->page_table[page_number])==0){
+        error_no = ERR_SEG_FAULT;
+        exit_ps(pid);
+        return -1;
+    }else{
+        int frame_number = pte_to_frame_num(curr->page_table[page_number]);
+        unsigned char res = RAM[frame_number*4*1096 + byte_offset];
+        return res;
+    }
 }
 
 // Write the given `byte` at `vmem_addr` virtual address of the process
-// In case of illegal memory access kill the process, deallocate all its resources(ps_exit) 
+// In case of illegal memory access kill the process, deallocate all its resources(exit_ps) 
 // and set error_no to ERR_SEG_FAULT.
 // 
 // assume 0 <= vmem_addr < PS_VIRTUAL_MEM_SIZE
 void write_mem(int pid, int vmem_addr, unsigned char byte) 
 {
     // TODO: student
+    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    int page_number = (int)(vmem_addr/PAGE_SIZE);
+    int byte_offset = (vmem_addr % PAGE_SIZE);
+    if(is_present(curr->page_table[page_number])==0 || is_writeable(curr->page_table[page_number])==0){
+        error_no = ERR_SEG_FAULT;
+        exit_ps(pid);
+    }else{
+        int frame_number = pte_to_frame_num(curr->page_table[page_number]);
+        RAM[frame_number*4*1096 + byte_offset] = byte;
+    }
 }
 
 
