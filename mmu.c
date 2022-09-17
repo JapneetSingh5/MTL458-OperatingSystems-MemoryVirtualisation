@@ -53,6 +53,23 @@ int end_index_page_tables = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) + 4108*100 - 
 // storing all the page tables as an array of PCB structs
 // each PCB struct has size
 
+page_table_entry build_pte(int page_num, int frame_num, int present, int flags){
+    if(page_num>1023 || page_num<0){
+        printf("Error : page number out of range \n");
+    }
+    // if(frame_num!=0 && (frame_num>51199 || frame_num<18432)){
+    //     printf("Error : page frame number out of range \n");
+    // }
+    if(present!=0 && present!=1){
+        printf("Error : present bit can only be 0 or 1 \n");
+    }
+    if(flags>7 || flags<0){
+        printf("Error : flags can range from 0 to 7 \n");
+    }
+    page_table_entry res = (page_num<<22) + (frame_num<<6) + (present<<3) + flags;
+    return res;
+}
+
 void os_init() {
     // TODO student 
     // initialize your data structures.
@@ -65,18 +82,35 @@ void os_init() {
     for(int i=0; i<100; i++){
         struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*i]);
         temp->is_free = 1;
-        temp->pid = i+1; 
+        temp->pid = i; 
         temp->page_table_count = 0;
+        for(int i=0; i<1024; i++){
+            // printf("Setting value as %d\n", build_pte(0, 0, 0, 0));
+            temp->page_table[i] = build_pte(0, 0, 0, 0);
+            // printf("Set value is %d\n", temp->page_table[i]);
+        }
         // if(i==32){
         //     temp->is_free = 1;
         // }
     }
 }
 
+int get_free_page(page_table_entry page_table[1024]){
+    for(int i=0; i<1024; i++){
+        if(is_present(page_table[i])==0){
+            return i;
+        }
+    }
+    return -1;
+} 
+
 int get_free_page_frame_index(){
     for(int i=start_index_free_list; i<=end_index_free_list; i++){
-        if((int)RAM[i]==0){
-            return i;
+        if((int)RAM[18432 + i*4]==0){
+            printf("%d is free\n", 18432 + i);
+            return 18432 + i;
+        }else{
+            printf("%d is used\n", 18432 + i);
         }
     }
     return -1;
@@ -84,7 +118,7 @@ int get_free_page_frame_index(){
 
 int get_free_pcb_index(){
     struct PCB* iter = (struct PCB*) ( &OS_MEM[start_index_page_tables]);
-    for(int i=0; i<99; i++){
+    for(int i=0; i<100; i++){
         int pid = iter->pid;
         int ptc = iter->page_table_count;
         int is_free = iter->is_free;
@@ -139,6 +173,8 @@ int get_free_pcb_index(){
  *  It should return the pid of the new process.  
  *  
  */
+
+
 int create_ps(int code_size, int ro_data_size, int rw_data_size,
                  int max_stack_size, unsigned char* code_and_ro_data) 
 {   
@@ -154,8 +190,74 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables+ 4108*pcb_index_to_allocate]);
     curr->is_free = 0;
     int process_id_allocated = curr->pid;
-    
-    return 0;
+    for(int i=0; i<no_pages_code; i++){
+        int page_to_allocate = get_free_page(curr->page_table);
+        if(page_to_allocate==-1){
+            printf("Error : no page available to allocate in  virt mem");
+        }
+        int page_frame_to_allocate = get_free_page_frame_index();
+        printf("free page frame is %d\n", page_frame_to_allocate);
+        RAM[18432+ (page_frame_to_allocate-18432)*4]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+1]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+2]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+3]=(unsigned char)1;
+        printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 5));
+        curr->page_table[page_to_allocate] = build_pte(page_to_allocate, page_frame_to_allocate, 1, 5);
+        printf("Set value is %d\n", curr->page_table[page_to_allocate]);
+        memcpy(OS_MEM + page_frame_to_allocate, code_and_ro_data + 4*i, 4);
+        curr->page_table_count++;
+    }
+    for(int i=0; i<no_pages_ro_data; i++){
+        int page_to_allocate = get_free_page(curr->page_table);
+        if(page_to_allocate==-1){
+            printf("Error : no page available to allocate in  virt mem");
+        }
+        int page_frame_to_allocate = get_free_page_frame_index();
+        printf("free page frame is %d\n", page_frame_to_allocate);
+        RAM[18432+ (page_frame_to_allocate-18432)*4]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+1]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+2]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+3]=(unsigned char)1;
+        printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 1));
+        curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 1);
+        printf("Set value is %d\n", curr->page_table[page_to_allocate]);
+        memcpy(OS_MEM + page_frame_to_allocate, code_and_ro_data + 4*no_pages_code + i*4, 4);
+        curr->page_table_count++;
+    }
+    for(int i=0; i<no_pages_rw_data; i++){
+        int page_to_allocate = get_free_page(curr->page_table);
+        if(page_to_allocate==-1){
+            printf("Error : no page available to allocate in  virt mem");
+        }
+        int page_frame_to_allocate = get_free_page_frame_index();
+        printf("free page frame is %d\n", page_frame_to_allocate);
+        RAM[18432+ (page_frame_to_allocate-18432)*4]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+1]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+2]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+3]=(unsigned char)1;
+        printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 3));
+        curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 3);
+        printf("Set value is %d\n", curr->page_table[page_to_allocate]);
+        curr->page_table_count++;
+    }
+    for(int i=0; i<no_pages_stack; i++){
+        int page_to_allocate = get_free_page(curr->page_table);
+        if(page_to_allocate==-1){
+            printf("Error : no page available to allocate in  virt mem");
+        }
+        int page_frame_to_allocate = get_free_page_frame_index();
+        printf("free page frame is %d\n", page_frame_to_allocate);
+        RAM[18432+ (page_frame_to_allocate-18432)*4]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+1]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+2]=(unsigned char)1;
+        RAM[18432+ (page_frame_to_allocate-18432)*4+3]=(unsigned char)1;
+        printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 3));
+        curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 3);
+        printf("Set value is %d\n", curr->page_table[page_to_allocate]);
+        curr->page_table_count++;
+
+    }
+    return process_id_allocated;
 }
 
 /**
@@ -300,31 +402,15 @@ int is_present(page_table_entry pte) {
     return res==1;
 }
 
-page_table_entry build_pte(int page_num, int frame_num, int present, int flags){
-    if(page_num>1023 || page_num<0){
-        printf("Error : page number out of range \n");
-    }
-    if(frame_num>65535 || frame_num<0){
-        printf("Error : page frame number out of range \n");
-    }
-    if(present!=0 && present!=1){
-        printf("Error : present bit can only be 0 or 1 \n");
-    }
-    if(flags>7 || flags<0){
-        printf("Error : flags can range from 0 to 7 \n");
-    }
-    page_table_entry res = (page_num<<22) + (frame_num<<6) + (present<<3) + flags;
-    return res;
-}
 
 // -------------------  functions to print the state  --------------------------------------------- //
 
 void print_page_table(int pid) 
 {
-    
-    page_table_entry* page_table_start = NULL; // TODO student: start of page table of process pid
-    int num_page_table_entries = -1;           // TODO student: num of page table entries
-
+    struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    page_table_entry* page_table_start = temp->page_table; // TODO student: start of page table of process pid
+    int num_page_table_entries = temp->page_table_count;           // TODO student: num of page table entries
+    printf("No of page table entries %d \n", num_page_table_entries);
     // Do not change anything below
     puts("------ Printing page table-------");
     for (int i = 0; i < num_page_table_entries; i++) 
@@ -376,7 +462,12 @@ int main(){
     //     ptc = sap->page_table_count;
     //     printf("%d, %d, %d \n", i+2, pid, ptc);
     // }
-    printf("%d\n", get_free_pcb_index());
+    unsigned char* p = (unsigned char*) "This is the source string";
+    int pid = create_ps(8*1024, 8*1024, 12*1024, 24*1024, p);
+    printf("pid: %d \n", pid);
+    print_page_table(pid);
+    // printf("%d\n", get_free_pcb_index());
+    // printf("%d", NUM_FRAMES);
 }
 
 
