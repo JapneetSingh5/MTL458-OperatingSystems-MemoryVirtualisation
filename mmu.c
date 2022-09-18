@@ -202,7 +202,8 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
     curr->is_free = 0;
     int process_id_allocated = curr->pid;
     for(int i=0; i<no_pages_code; i++){
-        int page_to_allocate = get_free_page(curr->page_table);
+        int page_to_allocate = i;
+        // printf("ALLOCATING PAGE %d\n", page_to_allocate);
         if(page_to_allocate==-1){
             printf("Error : no page available to allocate in  virt mem");
         }
@@ -218,7 +219,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         curr->page_table_count++;
     }
     for(int i=0; i<no_pages_ro_data; i++){
-        int page_to_allocate = get_free_page(curr->page_table);
+        int page_to_allocate = no_pages_code + i;
         if(page_to_allocate==-1){
             printf("Error : no page available to allocate in  virt mem");
         }
@@ -234,7 +235,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         curr->page_table_count++;
     }
     for(int i=0; i<no_pages_rw_data; i++){
-        int page_to_allocate = get_free_page(curr->page_table);
+        int page_to_allocate = no_pages_code + no_pages_ro_data + i;
         if(page_to_allocate==-1){
             printf("Error : no page available to allocate in  virt mem");
         }
@@ -247,7 +248,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         curr->page_table_count++;
     }
     for(int i=0; i<no_pages_stack; i++){
-        int page_to_allocate = get_free_page(curr->page_table);
+        int page_to_allocate = 1023 - no_pages_stack + i + 1;
         if(page_to_allocate==-1){
             printf("Error : no page available to allocate in  virt mem");
         }
@@ -341,14 +342,19 @@ void allocate_pages(int pid, int vmem_addr, int num_pages, int flags)
 {
    // TODO student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
-    for(int i = (vmem_addr)/(PAGE_SIZE)-1; i < (vmem_addr)/(PAGE_SIZE)- 1 +num_pages; i++){
+    if(curr->is_free){
+        error_no = ERR_SEG_FAULT;
+    }
+    for(int i = (vmem_addr)/(PAGE_SIZE); i < (vmem_addr)/(PAGE_SIZE) +num_pages; i++){
         if(is_present(curr->page_table[i])==1){
             error_no = ERR_SEG_FAULT;
             exit_ps(pid);
             return;
         }else{
             //TODO complete allocation with page no, frame no
-            curr->page_table[i] = build_pte(0, 0, 1, flags);
+            int frame_number_to_allocate = get_free_page_frame_index();
+            RAM[frame_number_to_allocate - 18432] = (unsigned char)1;
+            curr->page_table[i] = build_pte(i, frame_number_to_allocate, 1, flags);
         }
     }
     curr->page_table_count+=num_pages;
@@ -368,7 +374,10 @@ void deallocate_pages(int pid, int vmem_addr, int num_pages)
 {
    // TODO student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
-    for(int i = (vmem_addr)/(PAGE_SIZE)-1; i < (vmem_addr)/(PAGE_SIZE)- 1 +num_pages; i++){
+    if(curr->is_free){
+        error_no = ERR_SEG_FAULT;
+    }
+    for(int i = (vmem_addr)/(PAGE_SIZE); i < (vmem_addr)/(PAGE_SIZE) +  num_pages; i++){
         if(is_present(curr->page_table[i])==0){
             error_no = ERR_SEG_FAULT;
             exit_ps(pid);
@@ -391,11 +400,14 @@ unsigned char read_mem(int pid, int vmem_addr)
 {
     // TODO: student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    if(curr->is_free){
+        error_no = ERR_SEG_FAULT;
+    }
     int page_number = vmem_addr%PAGE_SIZE == 0 ? (int)(vmem_addr/PAGE_SIZE): (int)(vmem_addr/PAGE_SIZE);
     printf("%d \n", page_number);
     int byte_offset = (vmem_addr%PAGE_SIZE);
     printf("%d\n", byte_offset);
-    if(is_present(curr->page_table[page_number])==0 || is_readable(curr->page_table[page_number])==0){
+    if(is_readable(curr->page_table[page_number])==0){
         error_no = ERR_SEG_FAULT;
         exit_ps(pid);
         printf("Error\n");
@@ -414,18 +426,27 @@ unsigned char read_mem(int pid, int vmem_addr)
 // and set error_no to ERR_SEG_FAULT.
 // 
 // assume 0 <= vmem_addr < PS_VIRTUAL_MEM_SIZE
+// if  vmem_addr is 1024*1024 + 1 then,
+// page number is (1024*1024 + 1)/4*1024 = 256 
 void write_mem(int pid, int vmem_addr, unsigned char byte) 
 {
     // TODO: student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
+    if(curr->is_free){
+        error_no = ERR_SEG_FAULT;
+    }
     int page_number = (int)(vmem_addr/PAGE_SIZE);
+    printf("page number %d \n", page_number);
     int byte_offset = (vmem_addr % PAGE_SIZE);
-    if(is_present(curr->page_table[page_number])==0 || is_writeable(curr->page_table[page_number])==0){
+    printf("byte_offset %d \n", byte_offset);
+    if(is_writeable(curr->page_table[page_number])==0 || !is_present(curr->page_table[page_number])){
+        printf("SEG_FAULT\n");
         error_no = ERR_SEG_FAULT;
         exit_ps(pid);
     }else{
         int frame_number = pte_to_frame_num(curr->page_table[page_number]);
-        RAM[frame_number*4*1096 + byte_offset] = byte;
+        printf("frame number %d \n", frame_number);
+        RAM[frame_number*4*1024 + byte_offset] = byte;
     }
 }
 
@@ -508,7 +529,7 @@ void print_page_table(int pid)
 {
     struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     page_table_entry* page_table_start = temp->page_table; // TODO student: start of page table of process pid
-    int num_page_table_entries = temp->page_table_count;           // TODO student: num of page table entries
+    int num_page_table_entries = 1024;           // TODO student: num of page table entries
     printf("No of page table entries %d \n", num_page_table_entries);
     // Do not change anything below
     puts("------ Printing page table-------");
@@ -592,10 +613,10 @@ int main() {
 
 	error_no = -1; // no error
 
-
+    printf("table ps1 \n");
     print_page_table(p1);
 	unsigned char c = read_mem(p1, 10 * PAGE_SIZE);
-    printf("%c \n", RAM[18442*4*1024]);
+    // printf("%c \n", RAM[18442*4*1024]);
 	assert(c == 'c');
 
 	unsigned char d = read_mem(p1, 10 * PAGE_SIZE + 1);
@@ -604,11 +625,11 @@ int main() {
 	assert(error_no == -1); // no error
 
 
-	write_mem(1, 10 * PAGE_SIZE, 'd');   // write at ro_data
+	write_mem(p1, 10 * PAGE_SIZE, 'd');   // write at ro_data
 
 	assert(error_no == ERR_SEG_FAULT);  
 
-
+    printf("creating ps2 \n");
 	int p2 = create_ps(1 * MB, 0, 0, 1 * MB, code_ro_data);	// no ro_data, no rw_data
 
 	error_no = -1; // no error
@@ -618,7 +639,7 @@ int main() {
 
 	// allocate 250 pages
 	allocate_pages(p2, HEAP_BEGIN, 250, O_READ | O_WRITE);
-
+    printf("table ps2 \n");
     print_page_table(p2);
 
 	write_mem(p2, HEAP_BEGIN + 1, 'c');
@@ -639,12 +660,13 @@ int main() {
 
 
 	int ps_pids[100];
-
+    printf("Starting to  allocate \n");
 	// requesting 2 MB memory for 64 processes, should fill the complete 128 MB without complaining.   
 	for (int i = 0; i < 64; i++) {
     	ps_pids[i] = create_ps(1 * MB, 0, 0, 1 * MB, code_ro_data);
-    	print_page_table(ps_pids[i]);	// should print non overlapping mappings.  
+    	// print_page_table(ps_pids[i]);	// should print non overlapping mappings.  
 	}
+    printf("COMPLETED ALLOCATING ALL \n");
 
 
 	exit_ps(ps_pids[0]);
@@ -660,4 +682,6 @@ int main() {
 	for (int i = 0; i < 64; i++) {
     	print_page_table(ps_pids[i]);	// should print non overlapping mappings.  
 	}
+
+    printf("reached the end of the test suite \n");
 }
