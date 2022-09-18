@@ -305,7 +305,7 @@ int fork_ps(int pid) {
     for(int i=0; i<1024; i++){
         page_table_entry pte = to_cpy->page_table[i];
         if(is_present(pte)){
-            int page_to_allocate = get_free_page(curr->page_table);
+            int page_to_allocate = i;
             if(page_to_allocate==-1){
                 printf("Error : no page available to allocate in  virt mem");
             }
