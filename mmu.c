@@ -340,7 +340,7 @@ int fork_ps(int pid) {
 // and set error_no to ERR_SEG_FAULT.
 void allocate_pages(int pid, int vmem_addr, int num_pages, int flags) 
 {
-   // TODO student
+   // DONE student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
@@ -372,7 +372,7 @@ void allocate_pages(int pid, int vmem_addr, int num_pages, int flags)
 // and set error_no to ERR_SEG_FAULT.
 void deallocate_pages(int pid, int vmem_addr, int num_pages) 
 {
-   // TODO student
+   // DONE student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
@@ -398,7 +398,7 @@ void deallocate_pages(int pid, int vmem_addr, int num_pages)
 // assume 0 <= vmem_addr < PS_VIRTUAL_MEM_SIZE
 unsigned char read_mem(int pid, int vmem_addr) 
 {
-    // TODO: student
+    // DONE: student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
@@ -430,22 +430,22 @@ unsigned char read_mem(int pid, int vmem_addr)
 // page number is (1024*1024 + 1)/4*1024 = 256 
 void write_mem(int pid, int vmem_addr, unsigned char byte) 
 {
-    // TODO: student
+    // DONE: student
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
     }
     int page_number = (int)(vmem_addr/PAGE_SIZE);
-    printf("page number %d \n", page_number);
+    // printf("page number %d \n", page_number);
     int byte_offset = (vmem_addr % PAGE_SIZE);
-    printf("byte_offset %d \n", byte_offset);
+    // printf("byte_offset %d \n", byte_offset);
     if(is_writeable(curr->page_table[page_number])==0 || !is_present(curr->page_table[page_number])){
-        printf("SEG_FAULT\n");
+        // printf("SEG_FAULT\n");
         error_no = ERR_SEG_FAULT;
         exit_ps(pid);
     }else{
         int frame_number = pte_to_frame_num(curr->page_table[page_number]);
-        printf("frame number %d \n", frame_number);
+        // printf("frame number %d \n", frame_number);
         RAM[frame_number*4*1024 + byte_offset] = byte;
     }
 }
@@ -528,8 +528,8 @@ int is_present(page_table_entry pte) {
 void print_page_table(int pid) 
 {
     struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
-    page_table_entry* page_table_start = temp->page_table; // TODO student: start of page table of process pid
-    int num_page_table_entries = 1024;           // TODO student: num of page table entries
+    page_table_entry* page_table_start = temp->page_table; // DONE student: start of page table of process pid
+    int num_page_table_entries = 1024;           // DONE student: num of page table entries
     printf("No of page table entries %d \n", num_page_table_entries);
     // Do not change anything below
     puts("------ Printing page table-------");
@@ -613,7 +613,7 @@ int main() {
 
 	error_no = -1; // no error
 
-    printf("table ps1 \n");
+    // printf("table ps1 \n");
     print_page_table(p1);
 	unsigned char c = read_mem(p1, 10 * PAGE_SIZE);
     // printf("%c \n", RAM[18442*4*1024]);
@@ -629,7 +629,7 @@ int main() {
 
 	assert(error_no == ERR_SEG_FAULT);  
 
-    printf("creating ps2 \n");
+    // printf("creating ps2 \n");
 	int p2 = create_ps(1 * MB, 0, 0, 1 * MB, code_ro_data);	// no ro_data, no rw_data
 
 	error_no = -1; // no error
@@ -639,7 +639,7 @@ int main() {
 
 	// allocate 250 pages
 	allocate_pages(p2, HEAP_BEGIN, 250, O_READ | O_WRITE);
-    printf("table ps2 \n");
+    // printf("table ps2 \n");
     print_page_table(p2);
 
 	write_mem(p2, HEAP_BEGIN + 1, 'c');
@@ -660,13 +660,13 @@ int main() {
 
 
 	int ps_pids[100];
-    printf("Starting to  allocate \n");
+    // printf("Starting to  allocate \n");
 	// requesting 2 MB memory for 64 processes, should fill the complete 128 MB without complaining.   
 	for (int i = 0; i < 64; i++) {
     	ps_pids[i] = create_ps(1 * MB, 0, 0, 1 * MB, code_ro_data);
     	// print_page_table(ps_pids[i]);	// should print non overlapping mappings.  
 	}
-    printf("COMPLETED ALLOCATING ALL \n");
+    // printf("COMPLETED ALLOCATING ALL \n");
 
 
 	exit_ps(ps_pids[0]);
@@ -683,5 +683,5 @@ int main() {
     	print_page_table(ps_pids[i]);	// should print non overlapping mappings.  
 	}
 
-    printf("reached the end of the test suite \n");
+    // printf("reached the end of the test suite \n");
 }
