@@ -8,11 +8,17 @@
 
 #define KB (1024)
 
+// 4100 bytes per PCB struct, 100 processes can exist simultaneously
+// 4100 * 100 bytes < 1024 * 500 bytes < 500KB total used up
+#define start_index_page_tables ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE)
+#define end_index_page_tables ( ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) + (((4108)*(100)) - 1) )
+
+
+// last edited - 23/9/22
+
 // just a random array to be passed to ps_create
 unsigned char code_ro_data[10 * MB];
 
-
-#define FREE_LIST_SIZE = 32*1024
 // byte addressable memory
 unsigned char RAM[RAM_SIZE];  
 
@@ -40,64 +46,34 @@ int NUM_USABLE_FRAMES = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE);
 // To be set in case of errors. 
 int error_no; 
 
-
-unsigned int page_number_extractor = 1023<<22;
-unsigned int page_frame_extractor = 65535<<6;
-unsigned int readable_extractor = O_READ;
-unsigned int writable_extractor = O_WRITE;
-unsigned int executable_extractor = O_EX;
-unsigned int present_extractor = 1<<3;
-
-// storing the free list as a boolean array the size of total page_frames possible i.e.
-// 128*1024*1024/4*1024 = 32*1024 Bytes Needed = 32KB
-// 0 means that the frame has not been allocated yet, 1 means frame allocated 
-// to read from unsigned char array, read as (int)RAM[i]
-int start_index_free_list = 0;
-int end_index_free_list = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) - 1; //end_index has been filled,loop till <= end_index
-// 4100 bytes per PCB struct, 100 processes can exist simultaneously
-// 4100 * 100 bytes < 1024 * 500 bytes < 500KB total used up
-int start_index_page_tables = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE);
-int end_index_page_tables = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) + 4108*100 - 1;
-
-
 int pte_to_frame_num(page_table_entry pte);
 int get_flags(page_table_entry pte);
-// storing all the page tables as an array of PCB structs
-// each PCB struct has size
-page_table_entry build_pte(int page_num, int frame_num, int present, int flags){
-    if(page_num>1023 || page_num<0){
-        printf("Error : page number out of range \n");
-    }
-    // if(frame_num!=0 && (frame_num>51199 || frame_num<18432)){
-    //     printf("Error : page frame number out of range \n");
-    // }
-    if(present!=0 && present!=1){
-        printf("Error : present bit can only be 0 or 1 \n");
-    }
-    if(flags>7 || flags<0){
-        printf("Error : flags can range from 0 to 7 \n");
-    }
-    page_table_entry res = (page_num<<22) + (frame_num<<6) + (present<<3) + flags;
-    return res;
-}
+page_table_entry build_pte(int page_num, int frame_num, int present, int flags);
 
 void os_init() {
-    // TODO student 
+    // DONE student 
     // initialize your data structures.
 
     // first 32*1024 bytes are for the binary free list we created i.e. 32KB is  for the binary free list
     // intitalise them all to 0 since nothing has been allocated yet
+    // storing the free list as a boolean array the size of total page_frames possible i.e.
+    unsigned char empty = 0;   
+    // 128*1024*1024/4*1024 = 32*1024 Bytes Needed = 32KB
+    // 0 means that the frame has not been allocated yet, 1 means frame allocated 
+    // to read from unsigned char array, read as (int)RAM[i]
+    int start_index_free_list = 0;
+    int end_index_free_list = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) - 1; //end_index has been filled,loop till <= end_index
     for(int i=start_index_free_list; i<=end_index_free_list; i++){
-        RAM[i]  =  (unsigned char)0;
+        RAM[i]  =  empty;
     }
     for(int i=0; i<100; i++){
         struct PCB* temp = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*i]);
         temp->is_free = 1;
         temp->pid = i; 
         temp->page_table_count = 0;
-        for(int i=0; i<1024; i++){
+        for(int j=0; j<1024; j++){
             // printf("Setting value as %d\n", build_pte(0, 0, 0, 0));
-            temp->page_table[i] = build_pte(0, 0, 0, 0);
+            temp->page_table[j] = build_pte(0, 0, 0, 0);
             // printf("Set value is %d\n", temp->page_table[i]);
         }
         // if(i==32){
@@ -116,6 +92,12 @@ int get_free_page(page_table_entry page_table[1024]){
 } 
 
 int get_free_page_frame_index(){
+    // storing the free list as a boolean array the size of total page_frames possible i.e.
+    // 128*1024*1024/4*1024 = 32*1024 Bytes Needed = 32KB
+    // 0 means that the frame has not been allocated yet, 1 means frame allocated 
+    // to read from unsigned char array, read as (int)RAM[i]
+    int start_index_free_list = 0;
+    int end_index_free_list = ((RAM_SIZE - OS_MEM_SIZE) / PAGE_SIZE) - 1; //end_index has been filled,loop till <= end_index
     for(int i=start_index_free_list; i<=end_index_free_list; i++){
         if((int)RAM[i]==0){
             // printf("%d is free\n", 18432 + i);
@@ -130,17 +112,36 @@ int get_free_page_frame_index(){
 int get_free_pcb_index(){
     struct PCB* iter = (struct PCB*) ( &OS_MEM[start_index_page_tables]);
     for(int i=0; i<100; i++){
-        int pid = iter->pid;
-        int ptc = iter->page_table_count;
-        int is_free = iter->is_free;
+        // int pid = iter->pid;
+        // int ptc = iter->page_table_count;
+        // int is_free = iter->is_free;
         // printf("%d, %d, %d, %d \n", i, is_free , pid, ptc);
-        if(is_free){
+        if(iter->is_free){
             return i;
         }
         iter++;
     }
     return -1;
 } 
+
+
+page_table_entry build_pte(int page_num, int frame_num, int present, int flags){
+    if(page_num>1023 || page_num<0){
+        printf("Error : page number out of range \n");
+    }
+    // if(frame_num!=0 && (frame_num>51199 || frame_num<18432)){
+    //     printf("Error : page frame number out of range \n");
+    // }
+    if(present!=0 && present!=1){
+        printf("Error : present bit can only be 0 or 1 \n");
+    }
+    if(flags>7 || flags<0){
+        printf("Error : flags can range from 0 to 7 \n");
+    }
+    // page_table_entry res = (page_num<<22) + (frame_num<<6) + (present<<3) + flags;
+    return (page_table_entry) ((page_num<<22) + (frame_num<<6) + (present<<3) + flags);
+}
+
 
 
 
@@ -190,13 +191,15 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
                  int max_stack_size, unsigned char* code_and_ro_data) 
 {   
     // DONE student
+    unsigned char allocated = 1;
+    int pcb_index_to_allocate = get_free_pcb_index();
     int no_pages_code = code_size/PAGE_SIZE;
     int no_pages_ro_data = ro_data_size/PAGE_SIZE;
     int no_pages_rw_data = rw_data_size/PAGE_SIZE;
     int no_pages_stack = max_stack_size/PAGE_SIZE;
-    int pcb_index_to_allocate = get_free_pcb_index();
-    if(pcb_index_to_allocate==-1){
+    if(pcb_index_to_allocate==-1 || (no_pages_code + no_pages_ro_data + no_pages_rw_data + no_pages_stack > 1024)){
         printf("Error : no free space \n");
+        // return -1;
     }
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables+ 4108*pcb_index_to_allocate]);
     curr->is_free = 0;
@@ -209,7 +212,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         }
         int page_frame_to_allocate = get_free_page_frame_index();
         // printf("free page frame is %d\n", page_frame_to_allocate);
-        RAM[(page_frame_to_allocate-18432)]=(unsigned char)1;
+        RAM[(page_frame_to_allocate-18432)]=allocated;
         // printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 5));
         curr->page_table[page_to_allocate] = build_pte(page_to_allocate, page_frame_to_allocate, 1, 5);
         // printf("Set value is %d\n", curr->page_table[page_to_allocate]);
@@ -225,7 +228,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         }
         int page_frame_to_allocate = get_free_page_frame_index();
         // printf("free page frame is %d\n", page_frame_to_allocate);
-        RAM[(page_frame_to_allocate-18432)]=(unsigned char)1;
+        RAM[(page_frame_to_allocate-18432)]=allocated;
         // printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 1));
         curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 1);
         // printf("Set value is %d\n", curr->page_table[page_to_allocate]);
@@ -241,7 +244,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         }
         int page_frame_to_allocate = get_free_page_frame_index();
         // printf("free page frame is %d\n", page_frame_to_allocate);
-        RAM[(page_frame_to_allocate-18432)]=(unsigned char)1;
+        RAM[(page_frame_to_allocate-18432)]=allocated;
         // printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 3));
         curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 3);
         // printf("Set value is %d\n", curr->page_table[page_to_allocate]);
@@ -254,7 +257,7 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
         }
         int page_frame_to_allocate = get_free_page_frame_index();
         // printf("free page frame is %d\n", page_frame_to_allocate);
-        RAM[(page_frame_to_allocate-18432)]=(unsigned char)1;
+        RAM[(page_frame_to_allocate-18432)]=allocated;
         // printf("Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, 3));
         curr->page_table[page_to_allocate]=build_pte(page_to_allocate, page_frame_to_allocate, 1, 3);
         // printf("Set value is %d\n", curr->page_table[page_to_allocate]);
@@ -270,16 +273,13 @@ int create_ps(int code_size, int ro_data_size, int rw_data_size,
 void exit_ps(int pid) 
 {
    // DONE student
+   unsigned char empty = 0;
    struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables+ 4108*pid]);
    curr->is_free = 1;
     for(int i=0; i<1024; i++){
-        // printf("Setting value as %d\n", build_pte(0, 0, 0, 0));
-        // for(int i=start_index_free_list; i<=end_index_free_list; i++){
-        // RAM[i - curr-]  =  (unsigned char)0;
-        // }
         if(is_present(curr->page_table[i])){
             int frame_number_to_drop = pte_to_frame_num(curr->page_table[i]);
-            RAM[frame_number_to_drop - 18432] = (unsigned char)0;
+            RAM[frame_number_to_drop - 18432] = empty;
             curr->page_table[i] = build_pte(0, 0, 0, 0);
         }
         // printf("Set value is %d\n", temp->page_table[i]);
@@ -294,6 +294,7 @@ void exit_ps(int pid)
  * 
  */
 int fork_ps(int pid) {
+    unsigned char allocated = 1;
     int pcb_index_to_allocate = get_free_pcb_index();
     struct PCB* to_cpy = (struct PCB*) ( &OS_MEM[start_index_page_tables+ 4108*pid]);
     if(pcb_index_to_allocate==-1){
@@ -311,7 +312,7 @@ int fork_ps(int pid) {
             }
             int page_frame_to_allocate = get_free_page_frame_index();
             // printf("free page frame is %d\n", page_frame_to_allocate);
-            RAM[(page_frame_to_allocate-18432)]=(unsigned char)1;
+            RAM[(page_frame_to_allocate-18432)]=allocated;
             // printf("FORK CASE : Setting value as %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, get_flags(curr->page_table[page_to_allocate])));
             curr->page_table[page_to_allocate] = build_pte(page_to_allocate, page_frame_to_allocate, 1, get_flags(to_cpy->page_table[i]));
             // printf("Set value is %d\n", build_pte(page_to_allocate, page_frame_to_allocate, 1, get_flags(to_cpy->page_table[i])));
@@ -341,6 +342,7 @@ int fork_ps(int pid) {
 void allocate_pages(int pid, int vmem_addr, int num_pages, int flags) 
 {
    // DONE student
+   unsigned char allocated = 1;
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
@@ -353,7 +355,7 @@ void allocate_pages(int pid, int vmem_addr, int num_pages, int flags)
         }else{
             //TODO complete allocation with page no, frame no
             int frame_number_to_allocate = get_free_page_frame_index();
-            RAM[frame_number_to_allocate - 18432] = (unsigned char)1;
+            RAM[frame_number_to_allocate - 18432] = allocated;
             curr->page_table[i] = build_pte(i, frame_number_to_allocate, 1, flags);
         }
     }
@@ -373,6 +375,7 @@ void allocate_pages(int pid, int vmem_addr, int num_pages, int flags)
 void deallocate_pages(int pid, int vmem_addr, int num_pages) 
 {
    // DONE student
+   unsigned char empty = 0;
     struct PCB* curr = (struct PCB*) ( &OS_MEM[start_index_page_tables + 4108*pid]);
     if(curr->is_free){
         error_no = ERR_SEG_FAULT;
@@ -384,7 +387,7 @@ void deallocate_pages(int pid, int vmem_addr, int num_pages)
             return;
         }else{
             int frame_number_to_drop = pte_to_frame_num(curr->page_table[i]);
-            RAM[frame_number_to_drop - 18432] = (unsigned char)0;
+            RAM[frame_number_to_drop - 18432] = empty;
             curr->page_table[i] = build_pte(0, 0, 0, 0);
         }
     }
@@ -404,19 +407,19 @@ unsigned char read_mem(int pid, int vmem_addr)
         error_no = ERR_SEG_FAULT;
     }
     int page_number = vmem_addr%PAGE_SIZE == 0 ? (int)(vmem_addr/PAGE_SIZE): (int)(vmem_addr/PAGE_SIZE);
-    printf("%d \n", page_number);
+    // printf("%d \n", page_number);
     int byte_offset = (vmem_addr%PAGE_SIZE);
-    printf("%d\n", byte_offset);
+    // printf("%d\n", byte_offset);
     if(is_readable(curr->page_table[page_number])==0){
         error_no = ERR_SEG_FAULT;
         exit_ps(pid);
-        printf("Error\n");
+        // printf("Error\n");
         return -1;
     }else{
         int frame_number = pte_to_frame_num(curr->page_table[page_number]);
-        printf("%d\n", frame_number);
+        // printf("%d\n", frame_number);
         unsigned char res = (unsigned char) RAM[frame_number*4*1024 + byte_offset];
-        printf("%c \n", res);
+        // printf("%c \n", res);
         return res;
     }
 }
@@ -452,8 +455,6 @@ void write_mem(int pid, int vmem_addr, unsigned char byte)
 
 
 
-
-
 // ---------------------- Helper functions for Page table entries ------------------ // 
 
 // return the page number from the pte
@@ -461,9 +462,9 @@ int pte_to_page_num(page_table_entry pte)
 {
     // DONE: student
     // printf("Getting page from page table entry %u \n", pte);
-    unsigned int res = (pte & page_number_extractor)>>22;
+    // unsigned int res = (pte & (1023<<22))>>22;
     // printf("Res is %u\n",res);
-    return res;
+    return (unsigned int) (pte & (1023<<22))>>22 ;
 }
 
 // return the frame number from the pte
@@ -471,8 +472,8 @@ int pte_to_frame_num(page_table_entry pte)
 {
     // DONE: student
     // printf("Getting frame_num from page table entry %u \n", pte);
-    unsigned int res = (pte & page_frame_extractor)>>6;
-    return res;
+    // unsigned int res = (pte & (65535<<6))>>6;
+    return (pte & (65535<<6))>>6;
 }
 
 
@@ -481,9 +482,9 @@ int pte_to_frame_num(page_table_entry pte)
 int is_readable(page_table_entry pte) {
     // DONE: student
     // printf("Getting is_readable bit from page table entry %u \n", pte);
-    unsigned int res = pte & readable_extractor;
+    // unsigned int res = pte & O_READ;
     // printf("Res is %u\n",res);
-    return res==1;
+    return (pte & O_READ) == 1;
 }
 
 // return 1 if write bit is set in the pte
@@ -491,9 +492,9 @@ int is_readable(page_table_entry pte) {
 int is_writeable(page_table_entry pte) {
     // DONE: student
     // printf("Getting is_writable bit from page table entry %u \n", pte);
-    unsigned int res = (pte & writable_extractor)>>1;
+    // unsigned int res = (pte & O_WRITE)>>1;
     // printf("Res is %u\n",res);
-    return res==1;
+    return ((pte & O_WRITE)>>1) ==1;
 }
 
 // return 1 if executable bit is set in the pte
@@ -501,15 +502,15 @@ int is_writeable(page_table_entry pte) {
 int is_executable(page_table_entry pte) {
     // DONE: student
     // printf("Getting is_executable bit from page table entry %u \n", pte);
-    unsigned int res = (pte & executable_extractor)>>2;
+    // unsigned int res = (pte & O_EX)>>2;
     // printf("Res is %u\n",res);
-    return res==1;
+    return ((pte & O_EX)>>2) == 1;
 }
 
 int get_flags(page_table_entry pte){
-    unsigned int res = (pte & 7);
+    // unsigned int res = (pte & 7);
     // printf("Res is %u\n",res);
-    return res;
+    return (pte & 7);
 }
 
 // return 1 if present bit is set in the pte
@@ -517,9 +518,9 @@ int get_flags(page_table_entry pte){
 int is_present(page_table_entry pte) {
     // DONE: student
     // printf("Getting present bit from page table entry %u \n", pte);
-    unsigned int res = (pte & present_extractor)>>3;
+    // unsigned int res = (pte & (1<<3))>>3;
     // printf("Res is %u\n",res);
-    return res==1;
+    return ((pte & (1<<3))>>3) == 1;
 }
 
 
@@ -684,4 +685,5 @@ int main() {
 	}
 
     // printf("reached the end of the test suite \n");
+    // printf("%d",NUM_FRAMES-NUM_USABLE_FRAMES);
 }
